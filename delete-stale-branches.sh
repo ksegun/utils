@@ -5,13 +5,18 @@
 #set -euo pipefail
 #IFS=$'\n\t'
 
-while getopts "d" opt; do
+mainBranch=master
+
+while getopts "m:d" opt; do
   case $opt in
+    m )
+      mainBranch==$OPTARG
+      ;;
     d )
       dryRunOpt="--dry-run"
       ;;
     \? )
-      echo "Usage delete-stale-branches.sh [-h] [-d]"
+      echo "Usage delete-stale-branches.sh [-h] [-m <main branch> [-d]"
       exit 0
       ;;
     : )
@@ -20,6 +25,7 @@ while getopts "d" opt; do
       ;;
   esac
 done
+shift $((OPTIND -1))
 
 DATE=data
 case "$OSTYPE" in
@@ -30,8 +36,8 @@ esac
 
 # prune local "cache" of remote branches first:
 git fetch --prune origin
-# delete merged to master branches:
-mergedBranches=$(git branch -r --merged origin/master | grep -v "release-2*" | grep -v premaster | grep "^  origin/" | cut -d/ -f2- | grep -v -e "^master$" -e "^HEAD -> origin/master$")
+# delete merged to main branches:
+mergedBranches=$(git branch -r --merged "origin/${mainBranch}" | grep -v "release-2*" | grep -v premaster | grep -v gh-pages | grep -v main | grep "^  origin/" | cut -d/ -f2- | grep -v -e "^${mainBranch}$" -e "^HEAD -> origin/${mainBranch}$")
 if [ -n "${mergedBranches}" ]; then
   echo -e "\033[0;32mDeleting merged branches...\033[0m"
   git push $dryRunOpt --delete origin ${mergedBranches}
@@ -40,11 +46,11 @@ fi
 echo -e "\033[0;32mSearching for stale branches...\033[0m"
 staleTimestamp=$($DATE -d "now - 5 months" +"%s")
 maybeStaleTimestamp=$($DATE -d "now - 2 weeks" +"%s")
-notMergedBranches=$(git branch -r --no-merged origin/master | grep -v "release-2*" | grep -v premaster | grep "^  origin/" | cut -d/ -f2-)
+notMergedBranches=$(git branch -r --no-merged "origin/${mainBranch}" | grep -v "release-2*" | grep -v premaster | grep -v gh-pages | grep -v main | grep "^  origin/" | cut -d/ -f2-)
 branchesToDelete=""
 branchesToReview=""
 for branch in ${notMergedBranches}; do
-  lastCommitInfo=$(git cherry origin/master origin/${branch} | grep -v "^-" | cut -d" " -f2 | xargs git show --format="%H|%ct|%cr|%an" --quiet | grep -v "^$(git rev-parse HEAD)" | tail -1)
+  lastCommitInfo=$(git cherry "origin/${mainBranch}" origin/${branch} | grep -v "^-" | cut -d" " -f2 | xargs git show --format="%H|%ct|%cr|%an" --quiet | grep -v "^$(git rev-parse HEAD)" | tail -1)
   lastCommitTimestamp=$(echo "${lastCommitInfo}" | cut -d"|" -f2)
   if [ -z "${lastCommitTimestamp}" ] || [ ${lastCommitTimestamp} -lt ${staleTimestamp} ]; then
     branchesToDelete+=" ${branch#origin/}"
